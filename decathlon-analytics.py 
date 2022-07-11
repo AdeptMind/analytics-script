@@ -1,0 +1,34 @@
+import boto3
+import datetime
+import tempfile
+import snappy
+import os
+from job_monitoring_app.client.job import job
+
+s3 = boto3.resource('s3')
+bucket = s3.Bucket('adept-warehouse')
+
+def process_date(date):
+    import subprocess
+    with tempfile.TemporaryDirectory() as dirobj:
+        proc = subprocess.run(["aws", "s3", "cp", "--recursive", f"s3://adept-warehouse/{date.year}/{date.month:02d}/{date.day:02d}", dirobj])
+        for root, dirs, files in os.walk(dirobj):
+            for file in files:
+                os.system("python -m snappy -d " + root+"/"+file + " > " + root+"/"+file+".tmp")
+                os.remove(root+"/"+file)
+        # proc.wait()
+        logfile = f'{date.year}{date.month:02d}{date.day:02d}.log'
+        with open(logfile, 'w') as fobj:
+            proc = subprocess.run(["grep", "-hR", '"shop_id":"dc2bc6f9-e0b9-4fa8-9678-3aacb9640f23"', dirobj], stdout=fobj)
+            # proc.wait()
+        proc = subprocess.run(["gsutil", "cp", logfile, f"gs://dkt-us-adeptmind/decathlon/{date.year}{date.month:02d}/"])
+        proc = subprocess.run(["rm", logfile])
+
+@job("decathlon-daily-analytics-dump")
+def daily_task():
+    date = datetime.datetime.today() - datetime.timedelta(days=1)
+    process_date(date)
+
+
+if __name__ == '__main__':
+    daily_task()
